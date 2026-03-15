@@ -7,7 +7,7 @@ mp_hands = mp.tasks.vision.HandLandmarksConnections
 mp_drawing = mp.tasks.vision.drawing_utils
 mp_drawing_styles = mp.tasks.vision.drawing_styles
 
-def process_image(frame, recognizer, clf, label_encoder):
+def process_image(frame, recognizer, clf, label_encoder, show_landmarks=True):
     """
     Recebe uma imagem BGR (OpenCV format), processa para detectar gestos e desenha resultados.
     
@@ -16,6 +16,7 @@ def process_image(frame, recognizer, clf, label_encoder):
         recognizer: Instância do MediaPipe GestureRecognizer.
         clf: Modelo de classificação customizado (joblib loaded).
         label_encoder: Encoder de labels correspondente ao clf (joblib loaded).
+        show_landmarks: Booleano para desenhar ou não os landmarks.
         
     Returns:
         frame: Imagem com anotações e desenhos.
@@ -31,16 +32,19 @@ def process_image(frame, recognizer, clf, label_encoder):
     
     # 2. Extração de Landmarks com MediaPipe
     recognition_result = recognizer.recognize_for_video(mp_image, timestamp_ms)
+    labels = []
+    detected_gestures = []
 
     if recognition_result.hand_landmarks:
         for i, hand_landmarks in enumerate(recognition_result.hand_landmarks):
             # A. Desenha os landmarks na imagem
-            mp_drawing.draw_landmarks(
-                frame,
-                hand_landmarks,
-                mp_hands.HAND_CONNECTIONS,
-                mp_drawing_styles.get_default_hand_landmarks_style(),
-                mp_drawing_styles.get_default_hand_connections_style())
+            if show_landmarks:
+                mp_drawing.draw_landmarks(
+                    frame,
+                    hand_landmarks,
+                    mp_hands.HAND_CONNECTIONS,
+                    mp_drawing_styles.get_default_hand_landmarks_style(),
+                    mp_drawing_styles.get_default_hand_connections_style())
 
             # B. Prepara dados para o modelo customizado
             # Extraímos handedness e landmarks [handedness, x0, y0, z0, ..., x20, y20, z20]
@@ -58,11 +62,16 @@ def process_image(frame, recognizer, clf, label_encoder):
             prediction_idx = clf.predict(features)[0]
             prediction_prob = np.max(clf.predict_proba(features))
             gesture_name = label_encoder.inverse_transform([prediction_idx])[0]
+            
+            detected_gestures.append(gesture_name)
 
-            # D. Exibindo informações na tela
-            color = (0, 255, 0) # Verde
+            # D. Coleta de informações para o frontend
             display_text = f"Custom {hand_label}: {gesture_name} ({prediction_prob:.2f})"
-            cv2.putText(frame, display_text, (20, 50 + (i * 40)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+            labels.append(display_text)
 
-    return frame
+    # 3. Lógica de correspondência de gestos
+    matched_gesture = None
+    if len(detected_gestures) == 2 and detected_gestures[0] == detected_gestures[1]:
+        matched_gesture = detected_gestures[0]
+
+    return frame, labels, matched_gesture
